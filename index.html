@@ -35,7 +35,7 @@
       <tbody id="logBody"></tbody>
     </table>
   </div>  <script>
-    const provider = new ethers.providers.Web3Provider(window.ethereum);
+    let provider;
     let signer, walletAddress;
     let autoTrade = false;
     let totalProfit = 0;
@@ -56,10 +56,20 @@
     const amountIn = ethers.utils.parseUnits("1.0", 6); // $1.00 USDC
 
     document.getElementById("connectWallet").onclick = async () => {
-      await provider.send("eth_requestAccounts", []);
-      signer = provider.getSigner();
-      walletAddress = await signer.getAddress();
-      document.getElementById("wallet").textContent = walletAddress;
+      if (typeof window.ethereum !== 'undefined') {
+        try {
+          provider = new ethers.providers.Web3Provider(window.ethereum);
+          await provider.send("eth_requestAccounts", []);
+          signer = provider.getSigner();
+          walletAddress = await signer.getAddress();
+          document.getElementById("wallet").textContent = walletAddress;
+        } catch (err) {
+          console.error("Wallet connection failed", err);
+          alert("Wallet connection failed. Please try again.");
+        }
+      } else {
+        alert("MetaMask not detected. Please install MetaMask.");
+      }
     };
 
     document.getElementById("toggleAuto").onclick = () => {
