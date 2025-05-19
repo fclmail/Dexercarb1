@@ -1,0 +1,132 @@
+<!DOCTYPE html><html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Polygon Arbitrage Interface</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; background: #1c1c1c; color: #e0e0e0; }
+    h1 { color: #00ff88; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+    th, td { border: 1px solid #333; padding: 8px; text-align: center; }
+    .log { max-height: 400px; overflow-y: scroll; border: 1px solid #444; margin-top: 10px; }
+    button { margin: 5px; padding: 10px; background: #00ff88; border: none; color: #000; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Polygon Arbitrage Bot (HTML-only)</h1>
+  <button id="connectWallet">Connect Wallet</button>
+  <button id="toggleAuto">Toggle Auto-Trade</button>
+  <div>Wallet: <span id="wallet">Not connected</span></div>
+  <div>Accumulated Profit: $<span id="profit">0.00</span></div>  <div class="log">
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Buy From</th>
+          <th>Sell To</th>
+          <th>Token</th>
+          <th>Buy Price</th>
+          <th>Sell Price</th>
+          <th>Profit $</th>
+          <th>Profit %</th>
+        </tr>
+      </thead>
+      <tbody id="logBody"></tbody>
+    </table>
+  </div>  <script>
+    const provider = new ethers.providers.Web3Provider(window.ethereum);
+    let signer, walletAddress;
+    let autoTrade = false;
+    let totalProfit = 0;
+
+    const tokens = {
+      DAI: "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063",
+      AAVE: "0xD6DF932A45C0f255f85145f286eA0b292B21C90B",
+      LINK: "0x53e0bca35ec356bd5dddfebbd1fc0fd03fabad39",
+      USDCe: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+    };
+
+    const routers = {
+      quickswap: "0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff",
+      sushiswap: "0x1b02da8cb0d097eb8d57a175b88c7d8b47997506"
+    };
+
+    const usdcAddress = tokens.USDCe;
+    const amountIn = ethers.utils.parseUnits("1.0", 6); // $1.00 USDC
+
+    document.getElementById("connectWallet").onclick = async () => {
+      await provider.send("eth_requestAccounts", []);
+      signer = provider.getSigner();
+      walletAddress = await signer.getAddress();
+      document.getElementById("wallet").textContent = walletAddress;
+    };
+
+    document.getElementById("toggleAuto").onclick = () => {
+      autoTrade = !autoTrade;
+    };
+
+    async function getPrice(routerAddress, tokenOut) {
+      const routerAbi = ["function getAmountsOut(uint amountIn, address[] memory path) public view returns (uint[] memory amounts)"];
+      const router = new ethers.Contract(routerAddress, routerAbi, provider);
+      try {
+        const path = [usdcAddress, tokenOut];
+        const amounts = await router.getAmountsOut(amountIn, path);
+        return parseFloat(ethers.utils.formatUnits(amounts[1], 18));
+      } catch (e) {
+        return 0;
+      }
+    }
+
+    async function loop() {
+      if (!walletAddress) return;
+      for (const [symbol, token] of Object.entries(tokens)) {
+        if (token === usdcAddress) continue;
+
+        const buyQS = await getPrice(routers.quickswap, token);
+        const sellSS = await getPrice(routers.sushiswap, token);
+        const buySS = await getPrice(routers.sushiswap, token);
+        const sellQS = await getPrice(routers.quickswap, token);
+
+        const combinations = [
+          { buy: "QuickSwap", sell: "SushiSwap", buyPrice: buyQS, sellPrice: sellSS },
+          { buy: "SushiSwap", sell: "QuickSwap", buyPrice: buySS, sellPrice: sellQS }
+        ];
+
+        for (const combo of combinations) {
+          const profit = combo.sellPrice - combo.buyPrice;
+          const percent = (profit / combo.buyPrice) * 100;
+
+          log(combo.buy, combo.sell, symbol, combo.buyPrice, combo.sellPrice, profit, percent);
+
+          if (autoTrade && profit > 0.01) {
+            alert(`Profitable: ${symbol} via ${combo.buy} -> ${combo.sell}. Confirm in MetaMask.`);
+            // Here you'd call your contract method to executeArbitrage with appropriate params
+            // e.g. contract.executeArbitrage(token, amount, true, false)
+            totalProfit += profit;
+            document.getElementById("profit").textContent = totalProfit.toFixed(4);
+          }
+        }
+      }
+    }
+
+    function log(buy, sell, token, buyPrice, sellPrice, profit, percent) {
+      const now = new Date().toLocaleTimeString();
+      const row = `<tr>
+        <td>${now}</td>
+        <td>${buy}</td>
+        <td>${sell}</td>
+        <td>${token}</td>
+        <td>${buyPrice.toFixed(4)}</td>
+        <td>${sellPrice.toFixed(4)}</td>
+        <td>${profit.toFixed(4)}</td>
+        <td>${percent.toFixed(2)}%</td>
+      </tr>`;
+      const body = document.getElementById("logBody");
+      body.innerHTML = row + body.innerHTML;
+      if (body.rows.length > 20) body.deleteRow(20);
+    }
+
+    setInterval(loop, 5000);
+  </script></body>
+</html>
